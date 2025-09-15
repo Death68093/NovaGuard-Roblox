@@ -8,6 +8,9 @@ local NG_Pass = ReplicatedStorage:WaitForChild("Ng_Pass_Event")
 local NG_Fail = ReplicatedStorage:WaitForChild("Ng_Fail_Event")
 local NG_Check = ReplicatedStorage:WaitForChild("Ng_Check_Event")
 local NG_Exists = ReplicatedStorage:WaitForChild("NG_Exists_Event")
+local NG_Find = ReplicatedStorage:WaitForChild("NG_Find_Event")
+local NG_GetVal = ReplicatedStorage:WaitForChild("NG_GetVal_Event")
+
 
 
 -- How often to run checks (seconds)
@@ -15,15 +18,15 @@ local CHECK_INTERVAL = 5
 
 -- Listen for client pass/fail
 NG_Pass.OnServerEvent:Connect(function(player)
-	print(player.Name .. " passed their anti-cheat check")
+	print(config.LogPrefix .. player.Name .. " passed their anti-cheat check")
 end)
 
 NG_Fail.OnServerEvent:Connect(function(player, reason)
-	warn(player.Name .. " failed anti-cheat check: " .. tostring(reason))
+	warn(config.LogPrefix .. player.Name .. " failed anti-cheat check: " .. tostring(reason))
 
 	-- Punish
 	if config.AutoKick then
-		player:Kick("Failed anti-cheat check: " .. tostring(reason))
+		player:Kick(config.LogPrefix .. "Failed anti-cheat check: " .. tostring(reason))
 	end
 end)
 
@@ -58,7 +61,7 @@ NG_Exists.OnServerEvent:Connect(function(player)
 	if not success then
 		NG_Fail:FireServer(player, "PlayerScripts missing")
 		if config.AutoKick then
-			player:Kick("PlayerScripts missing")
+			player:Kick(config.LogPrefix .. "PlayerScripts missing")
 		end
 		return
 	end
@@ -73,8 +76,33 @@ NG_Exists.OnServerEvent:Connect(function(player)
 		local reason = "Missing anti-cheat files: " .. table.concat(missing, ", ") .. "\nIf you did not cause this, please contact the game owner."
 		NG_Fail:FireServer(player, reason)
 		if config.AutoKick then
-			player:Kick(reason)
+			player:Kick(config.LogPrefix .. reason)
 		end
 	end
 end)
 
+NG_Find.OnServerEvent:Connect(function(player, checkType, data)
+    if checkType == "Platform" then
+        local part = data
+        if not part or not part:IsDescendantOf(workspace) then
+            warn(config.LogPrefix .. player.Name .. " detected on fake platform")
+            if config.AutoKick then
+                player:Kick(config.LogPrefix .. "Illegal platform detected")
+            end
+        end
+    elseif checkType == "Spider" then
+        local part = data
+        if not part or not part:IsDescendantOf(workspace) then
+            warn(config.LogPrefix .. player.Name .. " attempted to climb a fake wall/truss")
+            if config.AutoKick then
+                player:Kick(config.LogPrefix .. " Illegal wall climb detected")
+            end
+        end
+    end
+end)
+
+NG_GetVal.OnServerInvoke = function(player, valType)
+	if valType == "Gravity" then
+		return workspace.Gravity
+	end
+end
