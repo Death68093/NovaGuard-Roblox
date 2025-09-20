@@ -5,7 +5,7 @@ A robust anti-cheat system for Roblox games.
 1. Place `NG_Server` in **ServerScriptService**.  
 2. Place `NG_Client` in **StarterPlayerScripts**.  
 3. Place `NG_Config` in **ReplicatedStorage.Modules**.  
-4. Add all RemoteEvents (`NG_Pass`, `NG_Fail`, `NG_Check`, `NG_Exists`) to **ReplicatedStorage**.  
+4. Add all RemoteEvents (`NG_Pass`, `NG_Fail`, `NG_Check`, `NG_Exists`, `NG_GetVal`, `NG_Find`) to **ReplicatedStorage**.  
 5. Configure `NG_Config` for your game. (Default settings work for most games.)
 
 ## Important Note
