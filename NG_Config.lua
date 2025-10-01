@@ -7,6 +7,7 @@ Config.CheckTimeout = 3 -- When the Server checks the client (if the client does
 
 -- Thresholds
 Config.MaxSpeed = 16
+Config.SpeedBuffer = 1.1 -- Small exception to speed in case of lag
 Config.MaxJumpHeight = 7.2
 Config.MaxJumpPower = 50
 Config.CheckCooldown = 5 -- In Seconds
@@ -58,13 +59,25 @@ Config.WhitelistedUserIds = {
     ]]--
 }
 
+
+-- Who will have access to the admin panel?
+Config.Admins = {
+--[[ Enter Id's of your admins (command seperated)
+E.g:
+123456789,
+987654321
+]]--
+}
+
 -- Punishments
 Config.AutoKick = true
 
--- logging (currently prints to server; replace with datastore/webhook)
+--[[ logging (currently prints to server; replace with datastore/webhook)]]
 Config.LogPrefix = "[NovaGuard]"
 
 -- Misc
-Config.ShowWaterMark = true -- Show the "Protected By: NovaGuard" logo (  hide to keep the anticheat a secret :)  ) 
+Config.ShowWaterMark = true --[[ Show the "Protected By: NovaGuard" logo (  hide to keep the anticheat a secret :)  ) ]]
+
+Config.AdminKeybind = Enum.KeyCode.Z  -- [[Just change the Z to whatever key you prefer :) will only work for admins set in Config.Admins]]
 
 return Config

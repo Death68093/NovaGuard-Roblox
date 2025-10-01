@@ -1,51 +1,41 @@
 # NovaGuard Anticheat
 
-**Protect your game with a lightweight, high-performance anticheat that’s fully customizable and hard to bypass.**
+**Protect your game with a lightweight, high-performance anticheat that’s hard to bypass.**
 
 ---
 
 ## 🚀 Features
 
-### Movement Protection
-- **Speed** – Detects unnatural movement speeds.  
-- **Jump Power / Height** – Flags abnormal jumps.  
-- **Teleportation** – Stops instant position changes.  
-- **Spider / Wall Climb** – Detects walking on walls or ceilings.  
-- **Platform / Flying** – Detects standing on invisible platforms or flying.  
-- **Infinite Jump** – Prevents repeated mid-air jumps.  
-- **No Clip** – Blocks passing through walls and floors.
+**Movement:** Speed, Jump, Teleport, Wall Climb, Flying, Infinite Jump, No Clip  
+**World:** Gravity changes  
+**UI & Camera:** FOV & GUI tampering  
+**Player Integrity:** Valid humanoid check  
+**File & Script:** Core file tampering, LocalScript injections  
+**Remote Exploit:** Token-based Remote validation  
 
-### World Protection
-- **Gravity Change** – Detects client-side gravity modifications.  
+---
 
-### UI & Camera Protection
-- **FOV Changes** – Ensures players use your intended camera settings.  
-- **CoreGui / PlayerGui Modifications** – Detects any unauthorized UI changes.
-
-### Player Integrity
-- **Humanoid Existence** – Confirms players have a valid character setup.  
-
-### File & Script Protection
-- **Anticheat File Removal** – Kicks players who tamper with core files.  
-- **LocalScript Injections** – Detects injected scripts in PlayerScripts or Backpack.  
-
-### Remote / Exploit Prevention
-- **Token-Based Remote Validation** – Blocks fake RemoteEvent or RemoteFunction calls.
+## ✅ Admin Tools
+- Kick / Ban players  
+- Fetch server logs  
+- Dynamic online player list  
+- Admin keybinds & role check  
+- GUI-triggered actions  
 
 ---
 
 ## ⚙️ Customization
-- Enable or disable any check in the config file.  
-- Adjust thresholds like max speed, jump height, gravity, and FOV.  
-- Whitelist trusted players to bypass specific checks.  
+- Enable/disable checks  
+- Adjust thresholds (speed, jump, FOV)  
+- Whitelist trusted players  
 
 ---
 
 ## ⚡ Performance
-- Optimized single-loop heartbeat monitoring for multiple checks.  
-- Token-based validation ensures only legitimate client responses are accepted.  
-- Minimal overhead on both server and client.
+- Single-loop heartbeat monitoring  
+- Token validation for legit clients  
+- Minimal server & client overhead  
 
 ---
 
-**NovaGuard** keeps your game safe, fair, and fun — without slowing it down.  
+**NovaGuard** keeps your game safe, fair, and fast.

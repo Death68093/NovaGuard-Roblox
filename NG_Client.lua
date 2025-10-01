@@ -1,4 +1,3 @@
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -20,7 +19,7 @@ local NG_Exists = ReplicatedStorage:WaitForChild("NG_Exists_Event")
 local NG_Find = ReplicatedStorage:WaitForChild("NG_Find_Event")
 local NG_GetVal = ReplicatedStorage:WaitForChild("NG_GetVal_Event")
 
--- baseline counts (used for CoreGui/PlayerGui checks)
+-- baseline counts
 local initialCoreGuiCount = #CoreGui:GetChildren()
 local initialPlayerGuiCount = #PlayerGui:GetChildren()
 
@@ -28,50 +27,55 @@ local monitoring = false
 local currentToken = nil
 local currentConf = nil
 local monitorStart = 0
-local MONITOR_TIME = 4.5 -- seconds of dynamic monitoring before sending PASS
 local falling = false
 local lastPos = nil
 local lastTime = nil
+local MONITOR_TIME = 5 -- slightly longer for safety
+local SPEED_BUFFER = config.SpeedBuffer or 1.1
 
 -- Update refs on respawn
-player.CharacterAdded:Connect(function(character)
+local function updateCharacter(character)
     char = character
     hum = char:WaitForChild("Humanoid")
     hrp = char:WaitForChild("HumanoidRootPart")
-end)
+    monitorStart = tick() -- reset monitoring timer
+    lastPos = hrp.Position
+    lastTime = tick()
+end
 
--- checks that don't need heartbeat monitoring
+player.CharacterAdded:Connect(updateCharacter)
+
+-- Check if player is whitelisted
+local function isWhitelisted()
+    return config.WhitelistedUserIds[player.UserId] ~= nil
+end
+
+-- Immediate checks
 local function runImmediateChecks(token, conf)
-    -- Humanoid existence
+    if isWhitelisted() then return nil end
+
     if conf.CheckHumanoid then
         if not hum or hum:GetState() == Enum.HumanoidStateType.Dead then
             return "No Humanoid Detected"
         end
     end
 
-    -- Speed
     if conf.CheckSpeed and hum.WalkSpeed > conf.MaxSpeed then
         return "Speed Detected"
     end
 
-    -- Jump
     if conf.CheckJump and (hum.JumpPower > conf.MaxJumpPower or hum.JumpHeight > conf.MaxJumpHeight) then
         return "Jump Detected"
     end
 
-    -- CoreGui / PlayerGui
-    if conf.CheckCoreGui then
-        if #CoreGui:GetChildren() ~= initialCoreGuiCount then
-            return "CoreGui Modified"
-        end
-    end
-    if conf.CheckPlayerGui then
-        if #PlayerGui:GetChildren() ~= initialPlayerGuiCount then
-            return "PlayerGui Modified"
-        end
+    if conf.CheckCoreGui and #CoreGui:GetChildren() ~= initialCoreGuiCount then
+        return "CoreGui Modified"
     end
 
-    -- LocalScript / Backpack check
+    if conf.CheckPlayerGui and #PlayerGui:GetChildren() ~= initialPlayerGuiCount then
+        return "PlayerGui Modified"
+    end
+
     if conf.CheckForLocalScript then
         local found = false
         local ok, playerScripts = pcall(function() return player:WaitForChild("PlayerScripts", 2) end)
@@ -97,7 +101,6 @@ local function runImmediateChecks(token, conf)
         if found then return "LocalScript Detected" end
     end
 
-    -- Gravity / FOV immediate checks
     if conf.CheckForGravity then
         local serverGravity = conf.UseServerGravity and NG_GetVal:InvokeServer("Gravity") or conf.DefaultGravity
         if Workspace.Gravity < conf.MinGravity or Workspace.Gravity > conf.MaxGravity then
@@ -115,27 +118,24 @@ local function runImmediateChecks(token, conf)
         end
     end
 
-    return nil -- passed immediate checks
+    return nil
 end
 
--- Start a monitoring session
+-- Start monitoring
 local function startMonitoring(token, conf)
-    -- cancel previous
-    monitoring = false
+    if isWhitelisted() then return end
+    monitoring = true
     currentToken = token
     currentConf = conf
     monitorStart = tick()
     falling = false
-    lastPos = hrp and hrp.Position or nil
+    lastPos = hrp.Position
     lastTime = tick()
 
-    -- tell server we have the client files (token-validated)
     pcall(function() NG_Exists:FireServer(token) end)
-
-    monitoring = true
 end
 
--- stop monitoring (used after pass/fail)
+-- Stop monitoring
 local function stopMonitoring()
     monitoring = false
     currentToken = nil
@@ -143,45 +143,41 @@ local function stopMonitoring()
     monitorStart = 0
 end
 
--- Single heartbeat connection for all dynamic checks
+-- Heartbeat checks
 RunService.Heartbeat:Connect(function(dt)
-    if not monitoring or not currentConf or not currentToken then return end
+    if not monitoring or not currentConf or not currentToken or isWhitelisted() then return end
     local conf = currentConf
     local token = currentToken
 
-    -- Infinite jump detection
-    if conf.CheckForInfiniteJump then
-        if hum then
-            local state = hum:GetState()
-            if state == Enum.HumanoidStateType.FreeFall then
-                falling = true
-            elseif state == Enum.HumanoidStateType.Landed then
-                falling = false
-            elseif falling and state == Enum.HumanoidStateType.Jumping then
-                pcall(function() NG_Fail:FireServer(token, "Infinite Jump Detected") end)
-                stopMonitoring()
-                return
-            end
+    -- Infinite jump
+    if conf.CheckForInfiniteJump and hum then
+        local state = hum:GetState()
+        if state == Enum.HumanoidStateType.FreeFall then
+            falling = true
+        elseif state == Enum.HumanoidStateType.Landed then
+            falling = false
+        elseif falling and state == Enum.HumanoidStateType.Jumping then
+            pcall(function() NG_Fail:FireServer(token, "Infinite Jump Detected") end)
+            stopMonitoring()
+            return
         end
     end
 
-    -- Fly / noclip detection
-    if conf.CheckForFly or conf.CheckForNoclip then
-        if hrp then
-            local raycastParams = RaycastParams.new()
-            raycastParams.FilterDescendantsInstances = {char}
-            raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-            local result = Workspace:Raycast(hrp.Position, Vector3.new(0, -5, 0), raycastParams)
-            if not result and hum and hum.FloorMaterial == Enum.Material.Air then
-                pcall(function() NG_Fail:FireServer(token, "Fly/NoClip Detected") end)
-                stopMonitoring()
-                return
-            end
+    -- Fly / noclip
+    if (conf.CheckForFly or conf.CheckForNoclip) and hrp and hum then
+        local rayParams = RaycastParams.new()
+        rayParams.FilterDescendantsInstances = {char}
+        rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+        local result = Workspace:Raycast(hrp.Position, Vector3.new(0, -5, 0), rayParams)
+        if not result and hum.FloorMaterial == Enum.Material.Air then
+            pcall(function() NG_Fail:FireServer(token, "Fly/NoClip Detected") end)
+            stopMonitoring()
+            return
         end
     end
 
     -- Spider / platform detection
-    if conf.CheckForSpider and hum and hum:GetState() == Enum.HumanoidStateType.Climbing then
+    if conf.CheckForSpider and hum:GetState() == Enum.HumanoidStateType.Climbing then
         local valid = false
         local dirs = {Vector3.new(1,0,0), Vector3.new(-1,0,0), Vector3.new(0,0,1), Vector3.new(0,0,-1)}
         for _, dir in ipairs(dirs) do
@@ -201,7 +197,7 @@ RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    if conf.CheckForPlatform and hrp and hum and hum.FloorMaterial == Enum.Material.Air then
+    if conf.CheckForPlatform and hrp and hum.FloorMaterial == Enum.Material.Air then
         local rp = RaycastParams.new()
         rp.FilterDescendantsInstances = {char}
         rp.FilterType = Enum.RaycastFilterType.Blacklist
@@ -213,12 +209,12 @@ RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- Teleport / speed-over-distance check
+    -- Teleport / speed-over-distance check with buffer
     if conf.CheckForTP and hrp and lastPos then
         local now = tick()
         local delta = (hrp.Position - lastPos).Magnitude
         local timePassed = now - lastTime
-        if timePassed > 0 and (delta / timePassed) > conf.MaxSpeed then
+        if timePassed > 0 and (delta / timePassed) > conf.MaxSpeed * SPEED_BUFFER then
             pcall(function() NG_Fail:FireServer(token, "Teleport Detected") end)
             stopMonitoring()
             return
@@ -227,7 +223,7 @@ RunService.Heartbeat:Connect(function(dt)
         lastTime = now
     end
 
-    -- If we've monitored long enough, send PASS
+    -- Pass check
     if tick() - monitorStart >= MONITOR_TIME then
         pcall(function() NG_Pass:FireServer(token) end)
         stopMonitoring()
@@ -235,16 +231,15 @@ RunService.Heartbeat:Connect(function(dt)
     end
 end)
 
--- Handle incoming check tokens
+-- Incoming token handler
 NG_Check.OnClientEvent:Connect(function(token, conf)
-    if not token or not conf then return end
-    -- run immediate checks
+    if not token or not conf or isWhitelisted() then return end
+
     local failReason = runImmediateChecks(token, conf)
     if failReason then
         pcall(function() NG_Fail:FireServer(token, failReason) end)
         return
     end
 
-    -- start monitoring, then the heartbeat will send PASS/FAIL
     startMonitoring(token, conf)
 end)
