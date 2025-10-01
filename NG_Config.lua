@@ -3,6 +3,7 @@
 local Config = {}
 
 Config.CheckInterval = 5 -- How often to run checks (seconds)
+Config.CheckTimeout = 3 -- When the Server checks the client (if the client doesn't respond) how man seconds until the check fails
 
 -- Thresholds
 Config.MaxSpeed = 16
@@ -15,6 +16,8 @@ Config.MinGravity = 196.2 -- Default Gravity is 196.2
 Config.MaxGravity = 196.2 -- Default Gravity is 196.2
 Config.UseServerGravity = true -- Check if Client gravity = Server gravity
 Config.DefaultGravity = 196.2 -- Set to your game's default gravity if not using server gravity
+
+
 
 -- Checks
 Config.CheckHumanoid = true -- Check if player's humanoid exists
@@ -33,7 +36,7 @@ Config.CheckForSpider = true -- Check For Spider (walking on walls/ceilings, lik
 Config.CheckForPlatform = true -- Check For Platform (standing on invisible platform) (flying)
 
 -- Checks settings
-Config.CheckFlyState = true -- True = Check for humanoid state flying
+Config.CheckFlyState = true -- True = Check for humanoid:GetState() == "flying"
 
 
 Config.WhitelistedUserIds = {
@@ -62,6 +65,6 @@ Config.AutoKick = true
 Config.LogPrefix = "[NovaGuard]"
 
 -- Misc
-Config.ShowWaterMark = true -- Show the "Protected By: NovaGuard" logo
+Config.ShowWaterMark = true -- Show the "Protected By: NovaGuard" logo (  hide to keep the anticheat a secret :)  ) 
 
 return Config

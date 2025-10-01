@@ -1,254 +1,250 @@
+
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
-local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
-local config = require(ReplicatedStorage:WaitForChild("NG_Config"))
+local CoreGui = game:GetService("CoreGui")
+local Workspace = game:GetService("Workspace")
 
+local player = Players.LocalPlayer
+local PlayerGui = player:WaitForChild("PlayerGui")
+local char = player.Character or player.CharacterAdded:Wait()
+local hum = char:WaitForChild("Humanoid")
+local hrp = char:WaitForChild("HumanoidRootPart")
+
+local config = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("NG_Config"))
 
 local NG_Pass = ReplicatedStorage:WaitForChild("Ng_Pass_Event")
-local NG_Fail = ReplicatedStorage:WaitForChild("Ng_Fail_Event") 
+local NG_Fail = ReplicatedStorage:WaitForChild("Ng_Fail_Event")
 local NG_Check = ReplicatedStorage:WaitForChild("Ng_Check_Event")
 local NG_Exists = ReplicatedStorage:WaitForChild("NG_Exists_Event")
 local NG_Find = ReplicatedStorage:WaitForChild("NG_Find_Event")
 local NG_GetVal = ReplicatedStorage:WaitForChild("NG_GetVal_Event")
 
-local player = Players.LocalPlayer
-local PlayerGui = player:WaitForChild("PlayerGui")
+-- baseline counts (used for CoreGui/PlayerGui checks)
+local initialCoreGuiCount = #CoreGui:GetChildren()
+local initialPlayerGuiCount = #PlayerGui:GetChildren()
 
--- Watermark
-local function showImage(assetId)
-    if PlayerGui:FindFirstChild("AntiCheatImage") then
-        PlayerGui.AntiCheatImage:Destroy()
-    end
+local monitoring = false
+local currentToken = nil
+local currentConf = nil
+local monitorStart = 0
+local MONITOR_TIME = 4.5 -- seconds of dynamic monitoring before sending PASS
+local falling = false
+local lastPos = nil
+local lastTime = nil
 
-    local image = Instance.new("ImageLabel")
-    image.Name = "AntiCheatImage"
-    image.Parent = PlayerGui
-    image.Size = UDim2.new(0, 150, 0, 150)  -- width/height in pixels
-    image.Position = UDim2.new(0, 10, 1, -160) -- bottom-left corner
-    image.AnchorPoint = Vector2.new(0, 0) -- position relative to top-left of UI
-    image.BackgroundTransparency = 1
-    image.Image = "rbxassetid://" .. tostring(assetId)
-    image.ZIndex = 10
-end
-showImage(120126554390458)
+-- Update refs on respawn
+player.CharacterAdded:Connect(function(character)
+    char = character
+    hum = char:WaitForChild("Humanoid")
+    hrp = char:WaitForChild("HumanoidRootPart")
+end)
 
-local ItemsInCoreGui = #CoreGui:GetChildren()
-local ItemsInPlayerGui = #PlayerGui:GetChildren()
-local lastPosition = nil
-local jumpCount = 0
-local lastCheck = tick()
-
-NG_Check.OnClientInvoke = function(config)
-    NG_Exists:FireServer(player)
-
-    local character = player.Character or player.CharacterAdded:Wait()
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    local reason = ""
-
-    -- Humanoid exists
-    if config.CheckHumanoid then
-        if not humanoid then
-            task.wait(5)
-            character = player.Character or player.CharacterAdded:Wait()
-            humanoid = character:FindFirstChildOfClass("Humanoid")
-            if not humanoid then
-                reason = "No Humanoid Detected"
-                NG_Fail:FireServer(player, reason)
-                return "FAIL"
-            end
-        elseif humanoid:GetState() == Enum.HumanoidStateType.Dead then
-            reason = "No Humanoid Detected"
-            NG_Fail:FireServer(player, reason)
-            return "FAIL"
+-- checks that don't need heartbeat monitoring
+local function runImmediateChecks(token, conf)
+    -- Humanoid existence
+    if conf.CheckHumanoid then
+        if not hum or hum:GetState() == Enum.HumanoidStateType.Dead then
+            return "No Humanoid Detected"
         end
     end
 
-    -- Speed check
-    if config.CheckSpeed then
-        if humanoid.WalkSpeed > config.MaxSpeed then
-            reason = "Speed Detected"
-            NG_Fail:FireServer(player, reason)
-            return "FAIL"
-        end
+    -- Speed
+    if conf.CheckSpeed and hum.WalkSpeed > conf.MaxSpeed then
+        return "Speed Detected"
     end
 
-    -- Jump check
-    if config.CheckJump then
-        if humanoid.JumpPower > config.MaxJumpPower or humanoid.JumpHeight > config.MaxJumpHeight then
-            reason = "Jump Detected"
-            NG_Fail:FireServer(player, reason)
-            return "FAIL"
-        end
+    -- Jump
+    if conf.CheckJump and (hum.JumpPower > conf.MaxJumpPower or hum.JumpHeight > conf.MaxJumpHeight) then
+        return "Jump Detected"
     end
 
-    -- CoreGui check
-    if config.CheckCoreGui then
-        local items = #CoreGui:GetChildren()
-        if items ~= ItemsInCoreGui then
-            reason = "CoreGui Modified"
-            NG_Fail:FireServer(player, reason)
-            return "FAIL"
+    -- CoreGui / PlayerGui
+    if conf.CheckCoreGui then
+        if #CoreGui:GetChildren() ~= initialCoreGuiCount then
+            return "CoreGui Modified"
         end
     end
-
-    -- PlayerGui check
-    if config.CheckPlayerGui then
-        local items = #PlayerGui:GetChildren()
-        if items ~= ItemsInPlayerGui then
-            reason = "PlayerGui Modified"
-            NG_Fail:FireServer(player, reason)
-            return "FAIL"
+    if conf.CheckPlayerGui then
+        if #PlayerGui:GetChildren() ~= initialPlayerGuiCount then
+            return "PlayerGui Modified"
         end
     end
 
     -- LocalScript / Backpack check
-    if config.CheckForLocalScript then
+    if conf.CheckForLocalScript then
         local found = false
-        local playerScripts = player:WaitForChild("PlayerScripts")
-        for _, obj in ipairs(playerScripts:GetDescendants()) do
-            if obj:IsA("LocalScript") and obj.Name == "LocalScript" then
-                found = true
-                break
-            end
-        end
-        if not found then
-            local backpack = player:WaitForChild("Backpack")
-            for _, obj in ipairs(backpack:GetDescendants()) do
+        local ok, playerScripts = pcall(function() return player:WaitForChild("PlayerScripts", 2) end)
+        if ok and playerScripts then
+            for _, obj in ipairs(playerScripts:GetDescendants()) do
                 if obj:IsA("LocalScript") and obj.Name == "LocalScript" then
                     found = true
                     break
                 end
             end
         end
-        if found then
-            NG_Fail:FireServer(player, "LocalScript Detected")
-            return "FAIL"
-        end
-    end
-
-    -- Teleport / position check
-    if config.CheckForTP then
-        if lastPosition and hrp then
-            local delta = (hrp.Position - lastPosition).Magnitude
-            local timePassed = tick() - lastCheck
-            if delta / timePassed > config.MaxSpeed then
-                NG_Fail:FireServer(player, "Teleport Detected")
-                return "FAIL"
+        if not found then
+            local ok2, backpack = pcall(function() return player:WaitForChild("Backpack", 2) end)
+            if ok2 and backpack then
+                for _, obj in ipairs(backpack:GetDescendants()) do
+                    if obj:IsA("LocalScript") then
+                        found = true
+                        break
+                    end
+                end
             end
         end
+        if found then return "LocalScript Detected" end
     end
 
-    -- Fly / noclip detection
-    if config.CheckForFly then
-        if hrp then
-            local ray = Ray.new(hrp.Position, Vector3.new(0, -5, 0))
-            local hit = workspace:FindPartOnRayWithIgnoreList(ray, {character})
-            if not hit and humanoid.FloorMaterial == Enum.Material.Air then
-                NG_Fail:FireServer(player, "Fly/NoClip Detected")
-                return "FAIL"
-            end
+    -- Gravity / FOV immediate checks
+    if conf.CheckForGravity then
+        local serverGravity = conf.UseServerGravity and NG_GetVal:InvokeServer("Gravity") or conf.DefaultGravity
+        if Workspace.Gravity < conf.MinGravity or Workspace.Gravity > conf.MaxGravity then
+            return "Gravity Modified"
         end
-        if humanoid:GetState() == Enum.HumanoidStateType.Flying then
-            NG_Fail:FireServer(player, "Fly Detected")
-            return "FAIL"
+        if conf.UseServerGravity and Workspace.Gravity ~= serverGravity then
+            return "Gravity Mismatch"
         end
     end
 
-
-    -- Gravity / camera FOV checks
-    if config.CheckForGravity then
-        if config.UseServerGravity then
-            local serverGravity = NG_GetVal:InvokeServer("Gravity")
-            if workspace.Gravity ~= serverGravity then
-                NG_Fail:FireServer(player, "Gravity Modified")
-                return "FAIL"
-            end
-        elseif workspace.Gravity ~= config.DefaultGravity then
-            NG_Fail:FireServer(player, "Gravity Modified")
-            return "FAIL"
+    if conf.CheckForFOV then
+        local cam = Workspace.CurrentCamera
+        if cam and (cam.FieldOfView < conf.MinFOV or cam.FieldOfView > conf.MaxFOV) then
+            return "Camera FOV Modified"
         end
     end
 
-    -- Check for FOV changes
-    if config.CheckForFOV then
-        local cam = workspace.CurrentCamera
-        if cam and (cam.FieldOfView < config.MinFOV or cam.FieldOfView > config.MaxFOV) then
-            NG_Fail:FireServer(player, "Camera FOV Modified")
-            return "FAIL"
-        end
-    end
-
-    -- Passed all checks
-    lastPosition = hrp and hrp.Position or lastPosition
-    lastCheck = tick()
-    NG_Pass:FireServer(player)
-    return "PASS"
+    return nil -- passed immediate checks
 end
 
+-- Start a monitoring session
+local function startMonitoring(token, conf)
+    -- cancel previous
+    monitoring = false
+    currentToken = token
+    currentConf = conf
+    monitorStart = tick()
+    falling = false
+    lastPos = hrp and hrp.Position or nil
+    lastTime = tick()
 
--- Infinite Jump
-    if config.CheckForInfiniteJump then
-        local falling = false
+    -- tell server we have the client files (token-validated)
+    pcall(function() NG_Exists:FireServer(token) end)
 
-        RunService.Heartbeat:Connect(function()
-            if not humanoid then return end
+    monitoring = true
+end
 
-            local state = humanoid:GetState()
+-- stop monitoring (used after pass/fail)
+local function stopMonitoring()
+    monitoring = false
+    currentToken = nil
+    currentConf = nil
+    monitorStart = 0
+end
 
+-- Single heartbeat connection for all dynamic checks
+RunService.Heartbeat:Connect(function(dt)
+    if not monitoring or not currentConf or not currentToken then return end
+    local conf = currentConf
+    local token = currentToken
+
+    -- Infinite jump detection
+    if conf.CheckForInfiniteJump then
+        if hum then
+            local state = hum:GetState()
             if state == Enum.HumanoidStateType.FreeFall then
                 falling = true
             elseif state == Enum.HumanoidStateType.Landed then
                 falling = false
             elseif falling and state == Enum.HumanoidStateType.Jumping then
-                reason = "Infinite Jump Detected"
-                NG_Fail:FireServer(player, reason)
-                falling = false
-            end
-        end)
-    end
-
-
-RunService.Heartbeat:Connect(function()
-    local character = player.Character
-    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-    local hrp = character and character:FindFirstChild("HumanoidRootPart")
-
-    if not humanoid or not hrp then return end
-
-    -- Spider / wall climbing
-    if Config.CheckForSpider then
-        if humanoid:GetState() == Enum.HumanoidStateType.Climbing then
-            local isValidClimb = false
-            local directions = {
-                Vector3.new(1,0,0),
-                Vector3.new(-1,0,0),
-                Vector3.new(0,0,1),
-                Vector3.new(0,0,-1)
-            }
-
-            for _, dir in ipairs(directions) do
-                local ray = Ray.new(hrp.Position, dir * 2)
-                local part = workspace:FindPartOnRayWithIgnoreList(ray, {character})
-                if part and part:IsA("TrussPart") then
-                    isValidClimb = true
-                    break
-                end
-            end
-
-            if not isValidClimb then
-                NG_Fail:FireServer(player, "Spider Climb Detected")
+                pcall(function() NG_Fail:FireServer(token, "Infinite Jump Detected") end)
+                stopMonitoring()
+                return
             end
         end
     end
 
-    -- Platform / flying check
-    if Config.CheckForPlatform and humanoid.FloorMaterial == Enum.Material.Air then
-        local ray = Ray.new(hrp.Position, Vector3.new(0, -5, 0))
-        local part = workspace:FindPartOnRayWithIgnoreList(ray, {character})
-        if part then
-            NG_Find:FireServer("Platform", part)
+    -- Fly / noclip detection
+    if conf.CheckForFly or conf.CheckForNoclip then
+        if hrp then
+            local raycastParams = RaycastParams.new()
+            raycastParams.FilterDescendantsInstances = {char}
+            raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+            local result = Workspace:Raycast(hrp.Position, Vector3.new(0, -5, 0), raycastParams)
+            if not result and hum and hum.FloorMaterial == Enum.Material.Air then
+                pcall(function() NG_Fail:FireServer(token, "Fly/NoClip Detected") end)
+                stopMonitoring()
+                return
+            end
         end
     end
+
+    -- Spider / platform detection
+    if conf.CheckForSpider and hum and hum:GetState() == Enum.HumanoidStateType.Climbing then
+        local valid = false
+        local dirs = {Vector3.new(1,0,0), Vector3.new(-1,0,0), Vector3.new(0,0,1), Vector3.new(0,0,-1)}
+        for _, dir in ipairs(dirs) do
+            local rp = RaycastParams.new()
+            rp.FilterDescendantsInstances = {char}
+            rp.FilterType = Enum.RaycastFilterType.Blacklist
+            local r = Workspace:Raycast(hrp.Position, dir * 2, rp)
+            if r and r.Instance and r.Instance:IsA("TrussPart") then
+                valid = true
+                break
+            end
+        end
+        if not valid then
+            pcall(function() NG_Find:FireServer(token, "Spider", nil) end)
+            stopMonitoring()
+            return
+        end
+    end
+
+    if conf.CheckForPlatform and hrp and hum and hum.FloorMaterial == Enum.Material.Air then
+        local rp = RaycastParams.new()
+        rp.FilterDescendantsInstances = {char}
+        rp.FilterType = Enum.RaycastFilterType.Blacklist
+        local r = Workspace:Raycast(hrp.Position, Vector3.new(0,-5,0), rp)
+        if r and r.Instance then
+            pcall(function() NG_Find:FireServer(token, "Platform", r.Instance) end)
+            stopMonitoring()
+            return
+        end
+    end
+
+    -- Teleport / speed-over-distance check
+    if conf.CheckForTP and hrp and lastPos then
+        local now = tick()
+        local delta = (hrp.Position - lastPos).Magnitude
+        local timePassed = now - lastTime
+        if timePassed > 0 and (delta / timePassed) > conf.MaxSpeed then
+            pcall(function() NG_Fail:FireServer(token, "Teleport Detected") end)
+            stopMonitoring()
+            return
+        end
+        lastPos = hrp.Position
+        lastTime = now
+    end
+
+    -- If we've monitored long enough, send PASS
+    if tick() - monitorStart >= MONITOR_TIME then
+        pcall(function() NG_Pass:FireServer(token) end)
+        stopMonitoring()
+        return
+    end
+end)
+
+-- Handle incoming check tokens
+NG_Check.OnClientEvent:Connect(function(token, conf)
+    if not token or not conf then return end
+    -- run immediate checks
+    local failReason = runImmediateChecks(token, conf)
+    if failReason then
+        pcall(function() NG_Fail:FireServer(token, failReason) end)
+        return
+    end
+
+    -- start monitoring, then the heartbeat will send PASS/FAIL
+    startMonitoring(token, conf)
 end)
