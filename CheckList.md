@@ -1,4 +1,4 @@
-# NovaGuard Anticheat
+# NovaGuard
 
 **Protect your game with a lightweight, high-performance anticheat that’s hard to bypass.**
 
