@@ -1,6 +1,6 @@
 # NovaGuard Anticheat
 
-[Skip to Instructions](https://github.com/Death68093/NovaGuard-Roblox-Anticheat/blob/main/README.md#setup-instructions)
+[Skip to Instructions](https://github.com/Death68093/NovaGuard-Roblox-Anticheat?tab=readme-ov-file#setup-instructions)
 
 **Protect your game with a lightweight, high-performance anticheat that’s hard to bypass.**
 
